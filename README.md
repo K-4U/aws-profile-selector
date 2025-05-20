@@ -4,6 +4,9 @@ A cli utility to select from profiles defined in your aws config.
 
 ## Requirements
 
+Note: this already assumes you have the AWS CLI and python installed and configured.
+
+This script also requires `dialog` to be installed on your system:
 ### MacOS
 
 ```bash
@@ -44,3 +47,31 @@ function aws-logoff() {
     unset AWS_CREDENTIAL_EXPIRATION
 }
 ```
+
+## Changes to your aws config (optional)
+
+You can add a `browser` to your profiles in `~/.aws/config`. This will tell aws cli to open the sign-in page in your
+preferred browser.
+For me as a consultant this is very useful, because I have to log in to different AWS accounts all the time and I often
+use different browsers for different clients.
+
+For example:
+
+```ini
+[profile my-profile]
+sso_session = my-sso-session
+sso_account_id = 123456789012
+sso_start_url = https://my-sso-portal.awsapps.com/start
+sso_role_name = my-role
+region = us-east-1
+browser = chrome
+
+[profile my-other-profile]
+sso_session = my-other-sso-session
+sso_account_id = 210987654321
+sso_start_url = https://my-other-sso-portal.awsapps.com/start
+sso_role_name = my-role
+region = eu-central-1
+browser = firefox
+```
+
