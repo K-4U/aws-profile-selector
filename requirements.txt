@@ -1,0 +1,2 @@
+pybrowsers==1.1.0
+pythondialog==3.5.3

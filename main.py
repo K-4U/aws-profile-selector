@@ -1,139 +1,111 @@
-import dialog
-import os
 import configparser
+import json
+import os
 import subprocess
-import webbrowser
-from time import time, sleep
-from boto3.session import Session
+import sys
+import dialog
+import browsers
 
-# Check if AWS config file exists
 
-config = configparser.ConfigParser()
-config.read(os.path.expanduser("~/.aws/config"))
+def read_profiles():
+    config = configparser.ConfigParser()
+    config.read(os.path.expanduser("~/.aws/config"))
+    profiles = []
+    found_browsers = []
+    for section in config.sections():
+        if section.startswith("profile"):
+            profile_name = section.split(" ")[1]
+            # Grab browser info if it exists
+            browser = None
+            if config.has_option(section, "browser"):
+                browser = config.get(section, "browser")
+                if browser not in found_browsers:
+                    found_browsers.append(browser)
 
-profiles = []
+            profile_settings = {
+                "name": profile_name,
+                "browser": browser,
+                "index": len(profiles),
+                "tuple": ("%s" % len(profiles), profile_name),
+            }
+            profiles.append(profile_settings)
 
-for section in config.sections():
-    if section.startswith("profile"):
-        profile_name = section.split(" ")[1]
-        # Grab browser info if it exists
-        browser = None
-        if config.has_option(section, "browser"):
-            browser = config.get(section, "browser")
+    if not verify_browsers(found_browsers):
+        print("Please install the missing browsers or remove them from your AWS config.")
+        exit(1)
 
-        # Fetch sso-specific profile settings
-        config_items = dict(config.items(section))
-        # Fetch the sso session name
-        sso_session_name = config_items.get("sso_session", None)
-        sso_start_url = ""
-        if not config.has_section(f"sso-session {sso_session_name}"):
-            if "sso_start_url" not in config_items:
-                continue  # We can't add anything to the list if we don't have a start url
-            else:
-                sso_start_url = config_items["sso_start_url"]
+    return profiles
+
+
+def verify_browsers(found_browsers):
+    installed_browsers_list = browsers.browsers()
+    # Get all the browser_type from the installed_browsers_list
+    installed_browsers = [browser["browser_type"] for browser in installed_browsers_list]
+    browser_not_found = False
+    for browser in found_browsers:
+        if browser not in installed_browsers:
+            print(f"Browser {browser} is not installed. Please install it or remove it from your AWS config.")
+            browser_not_found = True
         else:
-            sso_start_url = config.get(f"sso-session {sso_session_name}", "sso_start_url")
+            print(f"Browser {browser} is installed.")
 
-        profile_settings = {
-            "name": profile_name,
-            "browser": browser,
-            "index": len(profiles),
-            "tuple": ("%s" % len(profiles), profile_name),
-            "settings": dict(config.items(section)),
-            "sso_start_url": sso_start_url,
-        }
-        profiles.append(profile_settings)
-
-my_dialog = dialog.Dialog(dialog="dialog", autowidgetsize=True)
-my_dialog.set_background_title("AWS Profiles")
-if not profiles:
-    my_dialog.msgbox("No AWS profiles found in ~/.aws/config")
-    exit(1)
-
-button, choice = my_dialog.menu("Choose an AWS profile:", choices=[p["tuple"] for p in profiles])
+    return not browser_not_found
 
 
-def sso_login_with_cli(profile_name, browser):
-    environ_copy = os.environ.copy()
-    proc = subprocess.Popen(f"aws sso login --profile {profile_name}", env=environ_copy, shell=True, text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    output = ""
-    # TODO: Fetch the code from the output and display it in a dialog box
-    for line in proc.stdout:
-        print(line, end="")  # stream to terminal
-        output += line  # collect output
-    proc.wait()
-    print("Process exited with code:", proc.returncode)
-    result = subprocess.run(f"aws configure export-credentials --profile {profile_name}", shell=True, text=True,
-                            capture_output=True,
-                            env=environ_copy)
-    print(result)
+def main(output_file):
+    profiles = read_profiles()
+    my_dialog = dialog.Dialog(dialog="dialog", autowidgetsize=True)
+    my_dialog.set_background_title("AWS Profiles")
+
+    if not profiles:
+        my_dialog.msgbox("No AWS profiles found in ~/.aws/config")
+        exit(1)
+
+    button, choice = my_dialog.menu("Choose an AWS profile:", choices=[p["tuple"] for p in profiles])
+
+    if button == "ok":
+        selected_profile = profiles[int(choice)]
+        profile_name = selected_profile["name"]
+        browser = selected_profile["browser"]
+
+        environ_copy = os.environ.copy()
+        environ_copy['AWS_PROFILE'] = profile_name
+        if browser:
+            environ_copy['BROWSER'] = browsers.get(browser)["path"]
+
+        # Wait for the user to log in to the SSO session
+        subprocess.run("aws sso login", env=environ_copy, shell=True, text=True)
+
+        # Then export the credentials to a temp file
+        result = subprocess.run(
+            f"aws configure export-credentials --profile {profile_name} --format process --output json", shell=True,
+            text=True,
+            capture_output=True, env=environ_copy)
+        stout = result.stdout
+        print(f"STDOUT: {stout}")
+        aws_output = json.loads(stout)
+
+        # Open the temp file and write the credentials in env format to it
+        with open(output_file, "w") as f:
+            f.write(f"export AWS_ACCESS_KEY_ID={aws_output['AccessKeyId']}\n")
+            f.write(f"export AWS_SECRET_ACCESS_KEY={aws_output['SecretAccessKey']}\n")
+            f.write(f"export AWS_SESSION_TOKEN={aws_output['SessionToken']}\n")
+            f.write(f"export AWS_CREDENTIAL_EXPIRATION={aws_output['Expiration']}\n")
+            f.write(f"export AWS_PROFILE={profile_name}\n")
 
 
-def new_method():
-    session = Session()
-    sso_oidc = session.client("sso-oidc")
-    client_creds = sso_oidc.register_client(clientName="AWS Profile Selector", clientType="public")
-    device_authorization = sso_oidc.start_device_authorization(
-        clientId=client_creds["clientId"],
-        clientSecret=client_creds["clientSecret"],
-        startUrl=selected_profile["sso_start_url"],
-    )
-    url = device_authorization['verificationUriComplete']
-    device_code = device_authorization['deviceCode']
-    expires_in = device_authorization['expiresIn']
-    interval = device_authorization['interval']
-    user_code = device_authorization['userCode']
-    # TOOD: Make sure we open the right browser
-    my_dialog.msgbox("Opening browser for authorization...\n\nCheck the following code:\n\n%s\n\n" % user_code)
-    print(device_authorization)
-    print(device_code)
-    print(expires_in)
-    print(interval)
-    webbrowser.open(url, autoraise=True)
-    for n in range(1, expires_in // interval + 1):
-        # print("Waiting for authorization... %d seconds" % (n * interval))
-        # my_dialog.gauge_update(int(100*((n * interval)/expires_in)))
-        sleep(interval)
-        try:
-            token = sso_oidc.create_token(
-                grantType='urn:ietf:params:oauth:grant-type:device_code',
-                deviceCode=device_code,
-                clientId=client_creds['clientId'],
-                clientSecret=client_creds['clientSecret'],
-            )
-            break
-        except sso_oidc.exceptions.AuthorizationPendingException:
-            pass
-    access_token = token['accessToken']
-    sso = session.client('sso')
-    account_roles = sso.list_account_roles(
-        accessToken=access_token,
-        accountId=selected_profile['settings']['sso_account_id'],
-    )
-    roles = account_roles['roleList']
-    print(account_roles)
-    # simplifying here for illustrative purposes
-    role = roles[0]
-    # earlier versions of the sso api returned the
-    # role credentials directly, but now they appear
-    # to be in a subkey called `roleCredentials`
-    role_creds = sso.get_role_credentials(
-        roleName=role['roleName'],
-        accountId=selected_profile['settings']['sso_account_id'],
-        accessToken=access_token,
-    )['roleCredentials']
-    session = Session(
-        region_name=selected_profile["settings"]["region"],
-        aws_access_key_id=role_creds['accessKeyId'],
-        aws_secret_access_key=role_creds['secretAccessKey'],
-        aws_session_token=role_creds['sessionToken'],
-    )
+# Do the __init__ thing:
+if __name__ == "__main__":
+    # Check if the output file is passed as an argument
+    if len(sys.argv) != 2:
+        print("Usage: python main.py <output_file>")
+        exit(1)
 
+    output_file = sys.argv[1]
+    # Check if the output file is writable
+    if not os.access(os.path.dirname(output_file), os.W_OK):
+        print(f"Error: Cannot write to {output_file}")
+        exit(1)
 
-if button == "ok":
-    selected_profile = profiles[int(choice)]
-    profile_name = selected_profile["name"]
-    browser = selected_profile["browser"]
-
-    sso_login_with_cli(profile_name, browser)
+    # Call the main function
+    main(output_file)
