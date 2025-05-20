@@ -2,6 +2,9 @@
 
 A cli utility to select from profiles defined in your aws config.
 
+I created this script because I often have to log in to different AWS accounts and I wanted a simple way to select the
+right profile, without having to remember the profile names.
+
 ## Requirements
 
 Note: this already assumes you have the AWS CLI and python installed and configured.
