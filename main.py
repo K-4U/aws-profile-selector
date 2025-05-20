@@ -82,7 +82,7 @@ def main(output_file):
             text=True,
             capture_output=True, env=environ_copy)
         stout = result.stdout
-        print(f"STDOUT: {stout}")
+
         aws_output = json.loads(stout)
 
         # Open the temp file and write the credentials in env format to it
