@@ -7,7 +7,13 @@ right profile, without having to remember the profile names.
 
 ## Requirements
 
-Note: this already assumes you have the AWS CLI and python installed and configured.
+Note: this already assumes you have the AWS CLI and Python 3 installed and configured.
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
 
 This script also requires `dialog` to be installed on your system:
 ### MacOS
