@@ -25,7 +25,7 @@ brew install dialog
 ### Linux (Debian/Ubuntu)
 
 ```bash
-sudo apt-get install dialog
+sudo apt install dialog
 ```
 
 ### Windows
