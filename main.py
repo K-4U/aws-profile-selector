@@ -22,7 +22,7 @@ def read_profiles():
             profile_name = section.split(" ", 1)[1]
             browser = config.get(section, "browser") if config.has_option(section, "browser") else None
             if browser:
-                found_browsers.add(browser)
+                found_browsers.add(browser.lower())
             profiles.append({
                 "name": profile_name,
                 "browser": browser,
@@ -39,14 +39,63 @@ def read_profiles():
 
 
 def verify_browsers(found_browsers):
-    installed_browsers = {browser["browser_type"] for browser in browsers.browsers()}
-    missing = set(found_browsers) - installed_browsers
+    all_browsers = list(browsers.browsers())
+    installed_types = {b["browser_type"].lower() for b in all_browsers}
+    installed_display_names = {b["display_name"].lower() for b in all_browsers}
+    installed_paths = {b["path"].lower() for b in all_browsers}
+    missing = set()
+    for browser in found_browsers:
+        browser_lc = browser.lower()
+        # 1. Match by browser_type
+        if browser_lc in installed_types:
+            continue
+        # 2. Match by display_name
+        if browser_lc in installed_display_names:
+            continue
+        # 3. Match by substring in path (for custom installs like 'Firefox Werk')
+        if any(browser_lc in p for p in installed_paths):
+            continue
+        # 4. Fallback: check if browser is a valid path
+        if os.path.exists(browser) and os.access(browser, os.X_OK):
+            continue
+        missing.add(browser)
     if missing:
         for browser in missing:
             print(
-                RED + f"Browser {browser} is not installed. Please install it or remove it from your AWS config." + RESET)
+                RED + f"Browser {browser} is not installed or not found. Please install it or remove it from your AWS config." + RESET)
         return False
     return True
+
+
+def resolve_browser_path(browser):
+    """Resolve the browser path using the browsers library, supporting type, display name, and custom installations."""
+    browser_lc = browser.lower()
+    all_browsers = list(browsers.browsers())
+    # 1. Match by browser_type
+    for b in all_browsers:
+        if browser_lc == b["browser_type"].lower():
+            return b["path"]
+    # 2. Match by display_name
+    for b in all_browsers:
+        if browser_lc == b["display_name"].lower():
+            return b["path"]
+    # 3. Match by substring in path (for custom installs like 'Firefox Werk')
+    for b in all_browsers:
+        if browser_lc in b["path"].lower():
+            return b["path"]
+    # 4. Fallback: check if browser is a valid path
+    if os.path.exists(browser) and os.access(browser, os.X_OK):
+        return browser
+    return None
+
+
+def set_browser_env(environ_copy, browser):
+    resolved = resolve_browser_path(browser)
+    if resolved:
+        environ_copy['BROWSER'] = resolved
+    else:
+        print(RED + f"Browser {browser} is not installed or not found." + RESET)
+        exit(1)
 
 
 def main(output_file):
@@ -70,7 +119,7 @@ def main(output_file):
     environ_copy = os.environ.copy()
     environ_copy['AWS_PROFILE'] = profile_name
     if browser:
-        environ_copy['BROWSER'] = browsers.get(browser)["path"]
+        set_browser_env(environ_copy, browser)
 
     print(GREEN + "Now forwarding your request to aws cli:" + RESET)
     # Wait for the user to log in to the SSO session

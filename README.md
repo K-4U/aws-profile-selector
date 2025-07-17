@@ -61,8 +61,9 @@ function aws-logoff() {
 
 You can add a `browser` to your profiles in `~/.aws/config`. This will tell aws cli to open the sign-in page in your
 preferred browser.
-For me as a consultant this is very useful, because I have to log in to different AWS accounts all the time and I often
-use different browsers for different clients.
+
+You can specify either a browser type (like `chrome` or `firefox`), or a custom path to a browser executable. This is
+useful if you have multiple installations of the same browser (for example, a separate Firefox for work).
 
 For example:
 
@@ -82,5 +83,19 @@ sso_start_url = https://my-other-sso-portal.awsapps.com/start
 sso_role_name = my-role
 region = eu-central-1
 browser = firefox
+
+[profile work-firefox]
+sso_session = work-session
+sso_account_id = 999999999999
+sso_start_url = https://work.awsapps.com/start
+sso_role_name = work-role
+region = eu-west-1
+browser = /Applications/Firefox Werk.app
 ```
 
+- On Linux, you can specify a full path to a browser executable (e.g., `/opt/firefox-werk/firefox`).
+- On macOS, you can specify a `.app` bundle (e.g., `/Applications/Firefox Werk.app`).
+- If you specify a known browser type, the default installation will be used.
+- If you specify a custom path, it must exist and be executable.
+
+This allows you to use different browsers (or browser installations) for different AWS profiles.
